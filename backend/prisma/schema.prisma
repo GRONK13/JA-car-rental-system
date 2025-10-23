@@ -133,6 +133,10 @@ model Booking {
   releases                   Release[]
   Return                     Return[]
   transactions               Transaction[]
+
+  // Performance: Index for booking conflict queries
+  @@index([car_id, booking_status, isCancel], map: "idx_booking_conflicts")
+  @@index([car_id, start_date, end_date], map: "idx_booking_date_range")
 }
 
 model Extension {

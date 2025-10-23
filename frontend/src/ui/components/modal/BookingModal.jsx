@@ -749,6 +749,7 @@ export default function BookingModal({ open, onClose, car, onBookingSuccess }) {
       alert(successMessage);
       onClose();
     } catch (error) {
+      console.error('Booking submission error:', error);
       setError('Failed to submit booking. Please try again.');
     } finally {
       setLoading(false);

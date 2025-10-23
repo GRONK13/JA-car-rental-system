@@ -395,11 +395,47 @@ export const createBooking = async (req, res) => {
 
     // Booking data processed successfully
 
-    // Validate that customer exists
-    const customerExists = await prisma.customer.findUnique({
-      where: { customer_id: parseInt(customerId) },
-    });
+    // ⚡ PERFORMANCE OPTIMIZATION: Run validation queries in parallel
+    console.log(`🔍 Running parallel validation for booking...`);
+    
+    const [customerExists, carExists, existingBookings, driverExists] = await Promise.all([
+      // Query 1: Validate customer exists
+      prisma.customer.findUnique({
+        where: { customer_id: parseInt(customerId) },
+      }),
+      
+      // Query 2: Validate car exists
+      prisma.car.findUnique({
+        where: { car_id: parseInt(car_id) },
+      }),
+      
+      // Query 3: Check for date conflicts with existing bookings
+      prisma.booking.findMany({
+        where: {
+          car_id: parseInt(car_id),
+          booking_status: {
+            in: ["Pending", "Confirmed", "In Progress"],
+          },
+          isCancel: false,
+        },
+        select: {
+          booking_id: true,
+          start_date: true,
+          end_date: true,
+          booking_status: true,
+          payment_status: true,
+        },
+      }),
+      
+      // Query 4: Validate driver if specified (or return null if no driver)
+      finalDriverId 
+        ? prisma.driver.findUnique({
+            where: { drivers_id: finalDriverId },
+          })
+        : Promise.resolve(null),
+    ]);
 
+    // Validate customer
     if (!customerExists) {
       return res.status(404).json({
         error: "Customer not found",
@@ -407,11 +443,7 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // Validate that car exists
-    const carExists = await prisma.car.findUnique({
-      where: { car_id: parseInt(car_id) },
-    });
-
+    // Validate car
     if (!carExists) {
       return res.status(404).json({
         error: "Car not found",
@@ -424,24 +456,6 @@ export const createBooking = async (req, res) => {
     console.log(
       `📅 Requested: ${startDateTime.toISOString()} - ${endDateTime.toISOString()}`
     );
-
-    const existingBookings = await prisma.booking.findMany({
-      where: {
-        car_id: parseInt(car_id),
-        booking_status: {
-          in: ["Pending", "Confirmed", "In Progress"],
-        },
-        isCancel: false,
-      },
-      select: {
-        booking_id: true,
-        start_date: true,
-        end_date: true,
-        booking_status: true,
-        payment_status: true,
-      },
-    });
-
     console.log(
       `📋 Found ${existingBookings.length} existing active bookings for this car`
     );
@@ -472,17 +486,11 @@ export const createBooking = async (req, res) => {
     console.log(`✅ No date conflicts - booking can proceed`);
 
     // Validate driver if specified
-    if (finalDriverId) {
-      const driverExists = await prisma.driver.findUnique({
-        where: { drivers_id: finalDriverId },
+    if (finalDriverId && !driverExists) {
+      return res.status(404).json({
+        error: "Driver not found",
+        driver_id: finalDriverId,
       });
-
-      if (!driverExists) {
-        return res.status(404).json({
-          error: "Driver not found",
-          driver_id: finalDriverId,
-        });
-      }
     }
 
     const newBooking = await prisma.booking.create({
